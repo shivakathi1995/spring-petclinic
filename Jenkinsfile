@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     tools {
-        maven 'maven' // Matches the global tool configuration in your Jenkins
+        maven 'maven'
     }
 
     environment {
@@ -62,6 +62,13 @@ pipeline {
                         --output trivy-report.txt ${ImageName}:${BUILD_TAG}
                 '''
             }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'trivy-report.txt'
+                }
+            }
+        }
+
         stage('Login to ACR and Push Image') {
             steps {
                 withCredentials([
@@ -88,13 +95,6 @@ pipeline {
                         kubectl apply -f petclinic.yaml
                         kubectl get all
                     '''
-                }
-            }
-        }
-        
-            post {
-                always {
-                    archiveArtifacts artifacts: 'trivy-report.txt'
                 }
             }
         }
