@@ -48,15 +48,19 @@ pipeline {
         }
 
         stage('SonarQube Analysis') {
-    steps {
-        script {
-            echo 'Running SonarQube Cloud code analysis...'
-            withSonarQubeEnv('SonarQube') {
-                sh 'mvn sonar:sonar -Dsonar.organization=shiva2302 -Dsonar.projectKey=shiva2302_spring-petclinic'
+            steps {
+                script {
+                    echo 'Running SonarQube Cloud code analysis...'
+                    withSonarQubeEnv('SonarQube') {
+                        sh '''
+                            mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                                -Dsonar.organization=shiva2302 \
+                                -Dsonar.projectKey=shiva2302_spring-petclinic
+                        '''
+                    }
+                }
             }
         }
-    }
-}
 
         stage('Build Docker Image') {
             steps {
