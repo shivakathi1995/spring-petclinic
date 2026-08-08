@@ -77,6 +77,7 @@ pipeline {
                     script {
                         echo "Logging into Azure Container Registry..."
                         sh '''
+                            az login --service-principal -u "$AZURE_CLIENT_ID" -p "$AZURE_CLIENT_SECRET" --tenant "596f271a-e744-4410-9203-1836891565e6"
                             az acr login --name shivapetclinicacr
                             docker tag ${ImageName}:${BUILD_TAG} shivapetclinicacr.azurecr.io/${ImageName}:${BUILD_TAG}
                             docker push shivapetclinicacr.azurecr.io/${ImageName}:${BUILD_TAG}
