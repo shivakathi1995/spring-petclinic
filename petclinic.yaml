@@ -14,11 +14,9 @@ spec:
       labels:
         app: petclinic-app
     spec:
-      imagePullSecrets:
-        - name: acr-secret
       containers:
       - name: petclinic-container
-        image: myacr.azurecr.io/spring-petclinic:latest
+        image: shivapetclinicacr.azurecr.io/spring-petclinic:latest
         ports:
         - containerPort: 8080
 

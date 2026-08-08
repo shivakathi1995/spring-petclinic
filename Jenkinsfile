@@ -62,6 +62,36 @@ pipeline {
                         --output trivy-report.txt ${ImageName}:${BUILD_TAG}
                 '''
             }
+        stage('Login to ACR and Push Image') {
+            steps {
+                withCredentials([
+                    usernamePassword(credentialsId: 'AZURE_CREDENTIALS', usernameVariable: 'AZURE_CLIENT_ID', passwordVariable: 'AZURE_CLIENT_SECRET')
+                ]) {
+                    script {
+                        echo "Logging into Azure Container Registry..."
+                        sh '''
+                            az acr login --name shivapetclinicacr
+                            docker tag ${ImageName}:${BUILD_TAG} shivapetclinicacr.azurecr.io/${ImageName}:${BUILD_TAG}
+                            docker push shivapetclinicacr.azurecr.io/${ImageName}:${BUILD_TAG}
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    echo 'Deploying application to AKS cluster...'
+                    sh '''
+                        az aks get-credentials --resource-group RGJENKINS07AUGUST --name petclinic-aks --overwrite-existing
+                        kubectl apply -f petclinic.yaml
+                        kubectl get all
+                    '''
+                }
+            }
+        }
+        
             post {
                 always {
                     archiveArtifacts artifacts: 'trivy-report.txt'
