@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         // Azure & Container Registry Configuration
-        REGISTRY_NAME     = 'your-acr-name'                   // Replace with your ACR name (e.g., myacr07aug)
+        REGISTRY_NAME     = 'shivapetclinicacr'                   // Replace with your ACR name (e.g., myacr07aug)
         ACR_URL           = "${REGISTRY_NAME}.azurecr.io"
         IMAGE_NAME        = 'spring-petclinic'
         IMAGE_TAG         = "${BUILD_NUMBER}"
@@ -24,7 +24,7 @@ pipeline {
             steps {
                 withSonarQubeEnv('SonarQube') {
                     // Runs SonarQube analysis via Maven wrapper or standard mvn
-                    sh './mvnw sonar:sonar -Dsonar.projectKey=spring-petclinic'
+                    sh './mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar'
                 }
             }
         }
