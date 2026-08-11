@@ -3,14 +3,18 @@ pipeline {
 
     environment {
         // Azure & Container Registry Configuration
-        REGISTRY_NAME     = 'shivapetclinicacr'                   // Replace with your ACR name (e.g., myacr07aug)
-        ACR_URL           = "${REGISTRY_NAME}.azurecr.io"
-        IMAGE_NAME        = 'spring-petclinic'
-        IMAGE_TAG         = "${BUILD_NUMBER}"
+        REGISTRY_NAME      = 'shivapetclinicacr'
+        ACR_URL            = "${REGISTRY_NAME}.azurecr.io"
+        IMAGE_NAME         = 'spring-petclinic'
+        IMAGE_TAG          = "${BUILD_NUMBER}"
         
-        // Credentials IDs set up in Jenkins
-        AZURE_CREDENTIALS = 'AZURE_CREDENTIALS'               // ID of your Azure Service Principal credential
-        NOTIFICATION_EMAIL = 'rachamreddydivya98@gmail.com'   // Target email for pipeline alerts
+        // Azure Tenant ID (Required for az login)
+        AZURE_TENANT_ID    = '596f271a-e744-4410-9203-1836891565e6' // Replace with your actual Azure Tenant ID
+        
+        // Credentials IDs configured in Jenkins
+        AZURE_CREDENTIALS  = 'AZURE_CREDENTIALS'        // Username/Password credential for Azure Service Principal
+        SONAR_CREDENTIAL_ID = 'SonarQubetoken'              // Secret Text credential containing SonarQube token
+        NOTIFICATION_EMAIL = 'rachamreddydivya98@gmail.com'
     }
 
     stages {
@@ -21,14 +25,19 @@ pipeline {
         }
 
         stage('SonarQube Analysis') {
-    steps {
-        withSonarQubeEnv('SonarQube') {
-            sh './mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
-                -Dsonar.projectKey=spring-petclinic \
-                -Dsonar.host.url=http://4.221.131.153:9000'
+            steps {
+                withCredentials([string(credentialsId: "${SONAR_CREDENTIAL_ID}", variable: 'SONAR_TOKEN')]) {
+                    withSonarQubeEnv('SonarQube') {
+                        sh """
+                            ./mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar \
+                            -Dsonar.projectKey=spring-petclinic \
+                            -Dsonar.host.url=http://4.221.131.153:9000 \
+                            -Dsonar.login=\${SONAR_TOKEN}
+                        """
+                    }
+                }
+            }
         }
-    }
-}
 
         stage('Build & Test') {
             steps {
@@ -47,7 +56,7 @@ pipeline {
 
         stage('Trivy Image Vulnerability Scan') {
             steps {
-                // Scans the local docker image for HIGH/CRITICAL vulnerabilities
+                // Scans local image for HIGH and CRITICAL vulnerabilities
                 sh "trivy image --severity HIGH,CRITICAL ${ACR_URL}/${IMAGE_NAME}:${IMAGE_TAG}"
             }
         }
@@ -61,8 +70,8 @@ pipeline {
                 )]) {
                     script {
                         // Authenticate with Azure CLI and log into ACR
-                        sh "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${TENANT_ID}"
-                        sh "az acr login --name ${REGISTRY_NAME}"
+                        sh "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID}"
+                        sh "az acr login --name ${shivapetclinicacr}"
                         
                         // Push images to ACR
                         sh "docker push ${ACR_URL}/${IMAGE_NAME}:${IMAGE_TAG}"
@@ -80,10 +89,10 @@ pipeline {
                     passwordVariable: 'AZURE_CLIENT_SECRET'
                 )]) {
                     script {
-                        // Connect kubectl to your AKS cluster
-                        sh "az aks get-credentials --resource-group myResourceGroup --name myAKSCluster --overwrite-existing"
+                        // Connect kubectl to your AKS cluster (Update RG name & AKS name if different)
+                        sh "az aks get-credentials --resource-group RGJENKINS07AUGUST --name petclinic-aks-cluster --overwrite-existing"
                         
-                        // Apply deployment manifests and update image tag
+                        // Update container image tag on AKS
                         sh "kubectl set image deployment/spring-petclinic spring-petclinic=${ACR_URL}/${IMAGE_NAME}:${IMAGE_TAG}"
                     }
                 }
