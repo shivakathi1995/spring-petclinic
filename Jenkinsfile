@@ -21,13 +21,14 @@ pipeline {
         }
 
         stage('SonarQube Analysis') {
-            steps {
-                withSonarQubeEnv('SonarQube') {
-                    // Runs SonarQube analysis via Maven wrapper or standard mvn
-                    sh './mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar'
-                }
-            }
+    steps {
+        withSonarQubeEnv('SonarQube') {
+            sh './mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                -Dsonar.projectKey=spring-petclinic \
+                -Dsonar.host.url=http://4.221.131.153:9000'
         }
+    }
+}
 
         stage('Build & Test') {
             steps {
