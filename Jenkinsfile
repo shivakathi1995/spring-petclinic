@@ -1,108 +1,71 @@
 pipeline {
     agent any
 
-    tools {
-        maven 'maven'
-    }
-
     environment {
-        ImageName = 'spring-petclinic'
-        BUILD_TAG = 'latest'
-        ACR_NAME  = 'shivapetclinicacr'
-        TENANT_ID = '596f271a-e744-4410-9203-1836891565e6'
+        // Azure & Container Registry Configuration
+        REGISTRY_NAME     = 'your-acr-name'                   // Replace with your ACR name (e.g., myacr07aug)
+        ACR_URL           = "${REGISTRY_NAME}.azurecr.io"
+        IMAGE_NAME        = 'spring-petclinic'
+        IMAGE_TAG         = "${BUILD_NUMBER}"
+        
+        // Credentials IDs set up in Jenkins
+        AZURE_CREDENTIALS = 'AZURE_CREDENTIALS'               // ID of your Azure Service Principal credential
+        NOTIFICATION_EMAIL = 'rachamreddydivya98@gmail.com'   // Target email for pipeline alerts
     }
 
     stages {
-        stage('Checkout From Git') {
+        stage('Checkout Code') {
             steps {
-                git branch: 'main', url: 'https://github.com/shivakathi1995/spring-petclinic.git'
-            }
-        }
-
-        stage('Maven Validate') {
-            steps {
-                echo 'Validating project dependencies...'
-                sh 'mvn validate'
-            }
-        }
-
-        stage('Maven Compile') {
-            steps {
-                echo 'Compiling source code...'
-                sh 'mvn compile'
-            }
-        }
-
-        stage('Maven Test') {
-            steps {
-                echo 'Running unit tests...'
-                sh 'mvn test'
-            }
-        }
-
-        stage('Maven Package') {
-            steps {
-                echo 'Packaging application into executable JAR...'
-                sh 'mvn package -DskipTests'
+                checkout scm
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                script {
-                    echo 'Running SonarQube Cloud code analysis...'
-                    withSonarQubeEnv('SonarQube') {
-                        sh '''
-                            mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
-                                -Dsonar.organization=shiva2302 \
-                                -Dsonar.projectKey=shiva2302_spring-petclinic
-                        '''
-                    }
+                withSonarQubeEnv('SonarQube') {
+                    // Runs SonarQube analysis via Maven wrapper or standard mvn
+                    sh './mvnw sonar:sonar -Dsonar.projectKey=spring-petclinic'
                 }
+            }
+        }
+
+        stage('Build & Test') {
+            steps {
+                sh './mvnw clean package -DskipTests=false'
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                echo 'Building container image...'
-                sh 'docker build -t ${ImageName}:${BUILD_TAG} .'
+                script {
+                    sh "docker build -t ${ACR_URL}/${IMAGE_NAME}:${IMAGE_TAG} ."
+                    sh "docker tag ${ACR_URL}/${IMAGE_NAME}:${IMAGE_TAG} ${ACR_URL}/${IMAGE_NAME}:latest"
+                }
             }
         }
 
         stage('Trivy Image Vulnerability Scan') {
             steps {
-                echo 'Scanning Docker image for HIGH and CRITICAL vulnerabilities...'
-                sh '''
-                    trivy image --severity HIGH,CRITICAL \
-                        --format table \
-                        --output trivy-report.txt \
-                        ${ImageName}:${BUILD_TAG}
-                '''
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'trivy-report.txt', allowEmptyArchive: true
-                }
+                // Scans the local docker image for HIGH/CRITICAL vulnerabilities
+                sh "trivy image --severity HIGH,CRITICAL ${ACR_URL}/${IMAGE_NAME}:${IMAGE_TAG}"
             }
         }
 
-        stage('Login to ACR and Push Image') {
+        stage('Login & Push to ACR') {
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'AZURE_CREDENTIALS',
-                        usernameVariable: 'AZURE_CLIENT_ID',
-                        passwordVariable: 'AZURE_CLIENT_SECRET'
-                    )
-                ]) {
+                withCredentials([usernamePassword(
+                    credentialsId: "${AZURE_CREDENTIALS}",
+                    usernameVariable: 'AZURE_CLIENT_ID',
+                    passwordVariable: 'AZURE_CLIENT_SECRET'
+                )]) {
                     script {
-                        echo "Authenticating with Azure and pushing container image to ACR..."
-                        sh '''
-                            az login --service-principal -u "$AZURE_CLIENT_ID" -p "$AZURE_CLIENT_SECRET" --tenant "${TENANT_ID}"
-                            az acr login --name ${ACR_NAME}
-                            docker tag ${ImageName}:${BUILD_TAG} ${ACR_NAME}.azurecr.io/${ImageName}:${BUILD_TAG}
-                            docker push ${ACR_NAME}.azurecr.io/${ImageName}:${BUILD_TAG}
-                        '''
+                        // Authenticate with Azure CLI and log into ACR
+                        sh "az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${TENANT_ID}"
+                        sh "az acr login --name ${REGISTRY_NAME}"
+                        
+                        // Push images to ACR
+                        sh "docker push ${ACR_URL}/${IMAGE_NAME}:${IMAGE_TAG}"
+                        sh "docker push ${ACR_URL}/${IMAGE_NAME}:latest"
                     }
                 }
             }
@@ -110,13 +73,18 @@ pipeline {
 
         stage('Deploy to Kubernetes (AKS)') {
             steps {
-                script {
-                    echo 'Deploying application to Azure Kubernetes Service cluster...'
-                    sh '''
-                        az aks get-credentials --resource-group RGJENKINS07AUGUST --name petclinic-aks --overwrite-existing
-                        kubectl apply -f petclinic.yaml
-                        kubectl get all
-                    '''
+                withCredentials([usernamePassword(
+                    credentialsId: "${AZURE_CREDENTIALS}",
+                    usernameVariable: 'AZURE_CLIENT_ID',
+                    passwordVariable: 'AZURE_CLIENT_SECRET'
+                )]) {
+                    script {
+                        // Connect kubectl to your AKS cluster
+                        sh "az aks get-credentials --resource-group myResourceGroup --name myAKSCluster --overwrite-existing"
+                        
+                        // Apply deployment manifests and update image tag
+                        sh "kubectl set image deployment/spring-petclinic spring-petclinic=${ACR_URL}/${IMAGE_NAME}:${IMAGE_TAG}"
+                    }
                 }
             }
         }
@@ -124,10 +92,32 @@ pipeline {
 
     post {
         success {
-            echo 'Pipeline completed successfully!'
+            emailext (
+                to: "${NOTIFICATION_EMAIL}",
+                subject: "SUCCESS: Jenkins Pipeline - ${env.JOB_NAME} [Build #${env.BUILD_NUMBER}]",
+                mimeType: 'text/html',
+                body: """
+                    <h2 style="color: green;">Build Successful!</h2>
+                    <p><strong>Job:</strong> ${env.JOB_NAME}</p>
+                    <p><strong>Build Number:</strong> #${env.BUILD_NUMBER}</p>
+                    <p><strong>URL:</strong> <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
+                    <p>The updated container image <code>${ACR_URL}/${IMAGE_NAME}:${IMAGE_TAG}</code> has been deployed to AKS.</p>
+                """
+            )
         }
         failure {
-            echo 'Pipeline failed. Please inspect the stage logs.'
+            emailext (
+                to: "${NOTIFICATION_EMAIL}",
+                subject: "FAILED: Jenkins Pipeline - ${env.JOB_NAME} [Build #${env.BUILD_NUMBER}]",
+                mimeType: 'text/html',
+                body: """
+                    <h2 style="color: red;">Build Failed!</h2>
+                    <p><strong>Job:</strong> ${env.JOB_NAME}</p>
+                    <p><strong>Build Number:</strong> #${env.BUILD_NUMBER}</p>
+                    <p><strong>Console Output:</strong> <a href="${env.BUILD_URL}console">${env.BUILD_URL}console</a></p>
+                    <p>Please inspect the build logs to troubleshoot the failure.</p>
+                """
+            )
         }
     }
 }
